@@ -1,8 +1,11 @@
 package com.shopflow.orders.infrastructure.rest;
 
 import com.shopflow.orders.domain.model.*;
+import com.shopflow.orders.domain.service.DiscountCalculator;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,11 +16,14 @@ import java.util.*;
 @RequestMapping("/legacy/orders")
 public class LegacyOrderController {
 
+    private static final Logger log = LoggerFactory.getLogger(LegacyOrderController.class);
+
     @PersistenceContext
     private EntityManager entityManager;
 
-    private static final Map<String, Integer> discountUsageCount = new HashMap<>();
+    private final DiscountCalculator discountCalculator = new DiscountCalculator();
 
+    @SuppressWarnings("unchecked")
     @PostMapping
     public ResponseEntity<?> createOrder(@RequestBody Map<String, Object> request) {
         String customerId = (String) request.get("customerId");
@@ -47,42 +53,24 @@ public class LegacyOrderController {
         }
 
         String discountCode = (String) request.get("discountCode");
-        BigDecimal finalAmount = subtotal;
-
-        if (discountCode != null) {
-            switch (discountCode) {
-                case "WELCOME10" -> finalAmount = subtotal.multiply(new BigDecimal("0.90"));
-                case "SUMMER20" -> finalAmount = subtotal.multiply(new BigDecimal("0.80"));
-                case "VIP30" -> {
-                    if (subtotal.compareTo(new BigDecimal("50")) >= 0) {
-                        finalAmount = subtotal.multiply(new BigDecimal("0.70"));
-                    }
-                }
-                case "FLASH50" -> {
-                    discountUsageCount.merge(discountCode, 1, Integer::sum);
-                    if (discountUsageCount.get(discountCode) <= 100) {
-                        finalAmount = subtotal.multiply(new BigDecimal("0.50"));
-                    }
-                }
-            }
-        }
+        Money finalAmount = discountCalculator.apply(Money.of(subtotal), discountCode);
 
         Order order = new Order(
                 OrderId.generate(),
                 CustomerId.of(customerId),
                 items,
                 OrderStatus.PENDING,
-                Money.of(finalAmount),
+                finalAmount,
                 discountCode,
                 java.time.Instant.now()
         );
 
-        System.out.println("Order created for customer: " + customerId + " amount: " + finalAmount);
+        log.info("Order created for customer: {} amount: {}", customerId, finalAmount);
 
         Map<String, Object> response = new HashMap<>();
         response.put("orderId", order.id().toString());
         response.put("status", order.status().name());
-        response.put("amount", finalAmount);
+        response.put("amount", finalAmount.amount());
 
         return ResponseEntity.ok(response);
     }

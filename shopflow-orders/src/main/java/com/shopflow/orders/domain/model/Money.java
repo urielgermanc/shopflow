@@ -65,6 +65,11 @@ public record Money(BigDecimal amount, Currency currency) {
         return this.amount.compareTo(other.amount) > 0;
     }
 
+    public boolean isGreaterThanOrEqualTo(Money other) {
+        assertSameCurrency(other);
+        return this.amount.compareTo(other.amount) >= 0;
+    }
+
     private void assertSameCurrency(Money other) {
         if (!this.currency.equals(other.currency)) {
             throw new IllegalArgumentException(
